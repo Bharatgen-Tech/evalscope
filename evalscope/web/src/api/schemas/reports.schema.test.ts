@@ -79,4 +79,18 @@ describe('loadReportResponseSchema real report compatibility', () => {
 
     expect(result.success).toBe(true)
   })
+
+  it('accepts a reasoning block with a null reasoning_tokens, as emitted when the backend has no token count', () => {
+    // Belt-and-suspenders alongside the API client's nullToUndefined() normalisation: the schema
+    // itself also tolerates a raw `null` for any code path that validates before normalisation.
+    const result = chatMessageSchema.safeParse({
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', reasoning: 'thinking it through...', reasoning_tokens: null },
+        { type: 'text', text: 'final answer' },
+      ],
+    })
+
+    expect(result.success).toBe(true)
+  })
 })
