@@ -156,6 +156,23 @@ def _extract_timestamp(report_name: str, root: str) -> str:
     return ''
 
 
+# Metric names that are semantically the same "accuracy" metric under
+# different spellings (loosely mirrors the frontend's METRIC_ALIASES
+# 'accuracy' group in evalscope/web/src/domain/metric/registry.ts). Datasets
+# scored under any of these should still be treated as sharing one metric
+# when deciding whether a report's averaged score is meaningful to display -
+# most benchmarks report some spelling of "accuracy", so without this a
+# report combining e.g. an 'acc' dataset with a 'mean_acc' one would blank
+# its score even though the two are the same metric.
+_ACCURACY_METRIC_ALIASES = {'acc', 'accuracy', 'mean_acc', 'avg_score', 'score', 'average_accuracy'}
+
+
+def _canonical_metric_name(name: str) -> str:
+    """Normalize a metric name so semantically-equal spellings compare equal."""
+    normalized = name.strip().lower()
+    return 'accuracy' if normalized in _ACCURACY_METRIC_ALIASES else normalized
+
+
 def _build_report_meta(report_name: str, root: str) -> dict:
     """Load a report and return lightweight metadata for the list endpoint."""
     try:
@@ -182,9 +199,8 @@ def _build_report_meta(report_name: str, root: str) -> dict:
     avg_score = round(score_sum / len(report_list), 4) if report_list else 0.0
     timestamp = _extract_timestamp(report_name, root)
     metric_names = [metric.name for metric in primary_metrics if metric]
-    metric_name = metric_names[0] if len(metric_names) == len(report_list) and all(
-        name == metric_names[0] for name in metric_names
-    ) else ''
+    canonical_names = {_canonical_metric_name(name) for name in metric_names}
+    metric_name = metric_names[0] if len(metric_names) == len(report_list) and len(canonical_names) == 1 else ''
 
     # Preserve each metric's native scale; consumers use metric_name to format it.
     dataset_scores = {}
