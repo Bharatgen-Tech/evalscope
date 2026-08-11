@@ -4,17 +4,19 @@ Exposes the file-system report data through a REST API so that the
 React SPA frontend can load reports, predictions and analyses without
 direct filesystem access.
 """
+import glob
 import json
 import mimetypes
 import os
 import plotly.express as px
 import plotly.graph_objects as go
 import shutil
+import uuid
 from datetime import datetime
 from flask import Blueprint, jsonify, request, send_file
 from typing import List
 
-from evalscope.constants import PLOTLY_CDN_URL, PLOTLY_THEME
+from evalscope.constants import DATASET_TOKEN, MODEL_TOKEN, PLOTLY_CDN_URL, PLOTLY_THEME, REPORT_TOKEN, DataCollection
 from evalscope.report import ReportKey, get_data_frame
 from evalscope.report.report import Report
 from evalscope.report.visualization import (
@@ -34,9 +36,9 @@ from evalscope.utils.data_utils import (
     process_report_name,
     scan_for_report_folders,
 )
-from evalscope.utils.io_utils import OutputsStructure
+from evalscope.utils.io_utils import OutputsStructure, dict_to_yaml, yaml_to_dict
 from evalscope.utils.logger import get_logger
-from ..utils import OUTPUT_DIR, active_task_ids
+from ..utils import OUTPUT_DIR, active_task_ids, validate_task_id
 
 logger = get_logger()
 
@@ -231,6 +233,28 @@ def _refresh_html_report(reports_dir: str) -> None:
             logger.warning(f'Failed to remove stale report HTML {html_report}: {remove_error}')
 
 
+def _resolve_run_dir(root: str, prefix: str) -> str:
+    """Resolve ``<root>/<prefix>`` and reject path traversal / symlink escapes.
+
+    Raises:
+        ValueError: if the resolved path is not a direct child of ``root``.
+    """
+    root_real = os.path.realpath(root)
+    run_dir = os.path.realpath(os.path.join(root_real, prefix))
+    if run_dir == root_real or not run_dir.startswith(root_real + os.sep):
+        raise ValueError('Invalid report path')
+    return run_dir
+
+
+class ReportApiError(Exception):
+    """Typed failure for report mutation endpoints, carrying an HTTP status."""
+
+    def __init__(self, message: str, status: int = 400) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status = status
+
+
 # ------------------------------------------------------------------
 # Endpoints
 # ------------------------------------------------------------------
@@ -406,6 +430,243 @@ def delete_report():
         return jsonify({'success': True, 'report_name': report_name}), 200
     except Exception as e:
         logger.error(f'Failed to delete report {report_name}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+def _merge_reports(root: str, report_names: List[str]) -> str:
+    """Combine N same-model reports (disjoint datasets) into one new run directory.
+
+    Returns:
+        str: the identifier of the newly created merged report.
+
+    Raises:
+        ReportApiError: on any validation failure (bad names, mixed models,
+            overlapping datasets, a source belonging to a running task, or a
+            missing/invalid source report).
+    """
+    if len(report_names) < 2:
+        raise ReportApiError('At least 2 reports are required to merge', 400)
+
+    parsed = []
+    for name in report_names:
+        try:
+            prefix, model_name, _ = process_report_name(name)
+        except ValueError:
+            raise ReportApiError(f'Invalid report_name: {name}', 400)
+        parsed.append((name, prefix, model_name))
+
+    model_names = {model_name for _, _, model_name in parsed}
+    if len(model_names) > 1:
+        raise ReportApiError(f'All selected reports must belong to the same model, got: {sorted(model_names)}', 400)
+    model_name = next(iter(model_names))
+
+    running = active_task_ids()
+    for name, prefix, _ in parsed:
+        if prefix in running:
+            raise ReportApiError(f'Task is still running: {prefix}', 409)
+
+    source_dirs = []
+    dataset_owners: dict = {}  # dataset basename -> owning report_name, for collision reporting
+    for name, prefix, _ in parsed:
+        run_dir = _resolve_run_dir(root, prefix)
+        model_report_dir = os.path.realpath(os.path.join(run_dir, OutputsStructure.REPORTS_DIR, model_name))
+        if not model_report_dir.startswith(run_dir + os.sep) or not os.path.isdir(model_report_dir):
+            raise ReportApiError(f'Report not found: {name}', 404)
+
+        json_names = sorted(
+            f for f in os.listdir(model_report_dir) if f.endswith('.json') and f != DataCollection.REPORT_NAME
+        )
+        if not json_names:
+            raise ReportApiError(f'Report has no dataset results: {name}', 404)
+
+        for json_name in json_names:
+            if json_name in dataset_owners:
+                raise ReportApiError(
+                    f"Cannot merge: dataset '{os.path.splitext(json_name)[0]}' appears in both "
+                    f"'{dataset_owners[json_name]}' and '{name}'", 409
+                )
+            dataset_owners[json_name] = name
+
+        source_dirs.append((run_dir, model_report_dir, json_names))
+
+    new_prefix = f'merged_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid.uuid4().hex[:8]}'
+    new_run_dir = os.path.join(os.path.realpath(root), new_prefix)
+
+    try:
+        new_reports_dir = os.path.join(new_run_dir, OutputsStructure.REPORTS_DIR, model_name)
+        os.makedirs(new_reports_dir, exist_ok=True)
+
+        merged_datasets: List[str] = []
+        merged_dataset_args: dict = {}
+        base_task_cfg = None
+
+        for run_dir, model_report_dir, json_names in source_dirs:
+            for json_name in json_names:
+                shutil.copy2(os.path.join(model_report_dir, json_name), os.path.join(new_reports_dir, json_name))
+                merged_datasets.append(os.path.splitext(json_name)[0])
+
+            for sub in (OutputsStructure.PREDICTIONS_DIR, OutputsStructure.REVIEWS_DIR):
+                src = os.path.join(run_dir, sub, model_name)
+                if not os.path.isdir(src):
+                    continue
+                dst = os.path.join(new_run_dir, sub, model_name)
+                os.makedirs(dst, exist_ok=True)
+                for entry in os.listdir(src):
+                    shutil.copy2(os.path.join(src, entry), os.path.join(dst, entry))
+
+            config_files = sorted(glob.glob(os.path.join(run_dir, OutputsStructure.CONFIGS_DIR, '*.yaml')))
+            if config_files:
+                task_cfg = yaml_to_dict(config_files[0])
+                if base_task_cfg is None:
+                    base_task_cfg = dict(task_cfg) if isinstance(task_cfg, dict) else {}
+                if isinstance(task_cfg, dict) and isinstance(task_cfg.get('dataset_args'), dict):
+                    merged_dataset_args.update(task_cfg['dataset_args'])
+
+        if base_task_cfg is not None:
+            base_task_cfg['datasets'] = sorted(merged_datasets)
+            if merged_dataset_args:
+                base_task_cfg['dataset_args'] = merged_dataset_args
+            dict_to_yaml(base_task_cfg, os.path.join(new_run_dir, OutputsStructure.CONFIGS_DIR, 'task_config.yaml'))
+
+        total_num = 0
+        for json_name in os.listdir(new_reports_dir):
+            if not json_name.endswith('.json'):
+                continue
+            try:
+                total_num += Report.from_json(os.path.join(new_reports_dir, json_name)).num
+            except Exception:
+                pass
+
+        with open(os.path.join(new_run_dir, 'progress.json'), 'w', encoding='utf-8') as f:
+            json.dump({
+                'status': 'completed',
+                'pipeline': 'eval',
+                'total_count': total_num,
+                'processed_count': total_num,
+                'percent': 100.0,
+                'updated_at': datetime.now().isoformat(),
+            }, f)
+
+        try:
+            from evalscope.report import gen_html_report_file
+            gen_html_report_file(os.path.join(new_run_dir, OutputsStructure.REPORTS_DIR))
+        except Exception as e:
+            logger.warning(f'Failed to generate HTML report for merged run {new_prefix}: {e}')
+
+        return f'{new_prefix}{REPORT_TOKEN}{model_name}{MODEL_TOKEN}{DATASET_TOKEN.join(sorted(merged_datasets))}'
+    except ReportApiError:
+        raise
+    except Exception:
+        shutil.rmtree(new_run_dir, ignore_errors=True)
+        raise
+
+
+@bp_reports.route('/merge', methods=['POST'])
+def merge_reports():
+    """Merge multiple same-model reports (disjoint datasets) into one new report.
+
+    Request body (JSON):
+        root_path    (str):        output root directory (optional; falls back to config)
+        report_names (list[str]):  2+ report identifiers to merge; must all share the
+                                    same model and must not share any dataset.
+
+    Returns 400 for mixed models or malformed identifiers, 404 for a missing source
+    report, and 409 for overlapping datasets or a source belonging to a running task.
+    """
+    body = request.get_json(silent=True) or {}
+    report_names = body.get('report_names')
+    if not isinstance(report_names, list) or not report_names:
+        return jsonify({'error': 'report_names must be a non-empty list'}), 400
+
+    root = body.get('root_path') or _root_path()
+    if not root or not os.path.isdir(root):
+        return jsonify({'error': 'root_path is required and must be an existing directory'}), 400
+
+    try:
+        merged_name = _merge_reports(root, report_names)
+        logger.info(f'Merged reports {report_names} into {merged_name}')
+        return jsonify({'success': True, 'report_name': merged_name}), 200
+    except ReportApiError as e:
+        return jsonify({'error': e.message}), e.status
+    except Exception as e:
+        logger.error(f'Failed to merge reports {report_names}: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+@bp_reports.route('/rename', methods=['POST'])
+def rename_report():
+    """Rename the model of a report (and the ``model_name`` field inside each of its
+    dataset result files) in place.
+
+    Request body (JSON):
+        root_path      (str): output root directory (optional; falls back to config)
+        report_name    (str): report identifier ``{prefix}@@{model}::{datasets}``
+        new_model_name (str): the new model name; must be a single, valid path segment
+
+    Returns 409 when the report belongs to a task that is still executing, or when a
+    report for ``new_model_name`` already exists in the same run.
+    """
+    body = request.get_json(silent=True) or {}
+    report_name = body.get('report_name')
+    new_model_name = (body.get('new_model_name') or '').strip()
+
+    if not report_name:
+        return jsonify({'error': 'report_name is required'}), 400
+    if not new_model_name:
+        return jsonify({'error': 'new_model_name is required'}), 400
+    try:
+        validate_task_id(new_model_name)
+    except ValueError:
+        return jsonify({'error': 'new_model_name must not contain path separators'}), 400
+
+    try:
+        prefix, model_name, datasets = process_report_name(report_name)
+    except ValueError:
+        return jsonify({'error': f'Invalid report_name: {report_name}'}), 400
+
+    if new_model_name == model_name:
+        return jsonify({'error': 'new_model_name must be different from the current name'}), 400
+
+    if prefix in active_task_ids():
+        return jsonify({'error': f'Task is still running: {prefix}'}), 409
+
+    root = body.get('root_path') or _root_path()
+    try:
+        run_dir = _resolve_run_dir(root, prefix)
+    except ValueError:
+        return jsonify({'error': 'Invalid report path'}), 400
+
+    old_reports_dir = os.path.join(run_dir, OutputsStructure.REPORTS_DIR, model_name)
+    if not os.path.isdir(old_reports_dir):
+        return jsonify({'error': f'Report not found: {report_name}'}), 404
+
+    for sub in (OutputsStructure.REPORTS_DIR, OutputsStructure.PREDICTIONS_DIR, OutputsStructure.REVIEWS_DIR):
+        target = os.path.join(run_dir, sub, new_model_name)
+        if os.path.isdir(target):
+            return jsonify({'error': f"A report for model '{new_model_name}' already exists in this run"}), 409
+
+    try:
+        for sub in (OutputsStructure.REPORTS_DIR, OutputsStructure.PREDICTIONS_DIR, OutputsStructure.REVIEWS_DIR):
+            src = os.path.join(run_dir, sub, model_name)
+            if os.path.isdir(src):
+                shutil.move(src, os.path.join(run_dir, sub, new_model_name))
+
+        new_reports_dir = os.path.join(run_dir, OutputsStructure.REPORTS_DIR, new_model_name)
+        for json_name in os.listdir(new_reports_dir):
+            if not json_name.endswith('.json') or json_name == DataCollection.REPORT_NAME:
+                continue
+            json_path = os.path.join(new_reports_dir, json_name)
+            report = Report.from_json(json_path)
+            report.model_name = new_model_name
+            report.to_json(json_path)
+
+        _refresh_html_report(os.path.join(run_dir, OutputsStructure.REPORTS_DIR))
+
+        new_report_name = f'{prefix}{REPORT_TOKEN}{new_model_name}{MODEL_TOKEN}{DATASET_TOKEN.join(datasets)}'
+        logger.info(f'Renamed report {report_name} to {new_report_name}')
+        return jsonify({'success': True, 'report_name': new_report_name}), 200
+    except Exception as e:
+        logger.error(f'Failed to rename report {report_name}: {e}')
         return jsonify({'error': str(e)}), 500
 
 

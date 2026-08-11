@@ -1,11 +1,13 @@
-import { apiDeleteValidated, apiValidated } from './client'
+import { apiDeleteValidated, apiPostValidated, apiValidated } from './client'
 import {
   analysisResponseSchema,
   dataFrameResponseSchema,
   deleteReportResponseSchema,
   listReportsResponseSchema,
   loadReportResponseSchema,
+  mergeReportResponseSchema,
   predictionsResponseSchema,
+  renameReportResponseSchema,
   scanResponseSchema,
 } from './schemas'
 import type {
@@ -14,7 +16,9 @@ import type {
   DeleteReportResponse,
   ListReportsResponse,
   LoadReportResponse,
+  MergeReportResponse,
   PredictionsResponse,
+  RenameReportResponse,
   ScanResponse,
 } from './types'
 
@@ -68,6 +72,33 @@ export async function deleteReport(
     params: { root_path: rootPath, report_name: reportName },
     signal,
   })
+}
+
+export async function mergeReports(
+  rootPath: string,
+  reportNames: string[],
+  signal?: AbortSignal,
+): Promise<MergeReportResponse> {
+  return apiPostValidated(
+    `${BASE}/merge`,
+    { root_path: rootPath, report_names: reportNames },
+    mergeReportResponseSchema,
+    { signal },
+  )
+}
+
+export async function renameReport(
+  rootPath: string,
+  reportName: string,
+  newModelName: string,
+  signal?: AbortSignal,
+): Promise<RenameReportResponse> {
+  return apiPostValidated(
+    `${BASE}/rename`,
+    { root_path: rootPath, report_name: reportName, new_model_name: newModelName },
+    renameReportResponseSchema,
+    { signal },
+  )
 }
 
 export async function loadReport(

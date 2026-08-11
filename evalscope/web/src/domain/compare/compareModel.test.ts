@@ -10,10 +10,12 @@
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 
+import type { ReportSummary } from '@/api/types'
 import { DATASET_TOKEN, MODEL_TOKEN, REPORT_TOKEN, parseReportName } from '@/utils/reportParser'
 import {
   addToSelection,
   buildDisplayLabel,
+  canMerge,
   MAX_COMPARE_SELECTION,
   preserveSelectionAcrossReorder,
 } from './compareModel'
@@ -280,5 +282,57 @@ describe('addToSelection (Property 10: compare selection cap)', () => {
         expect(new Set(next).size).toBe(next.length)
       }),
     )
+  })
+})
+
+/* ─── canMerge: report-merge eligibility ───────────────────────── */
+
+describe('canMerge', () => {
+  const summary = (overrides: Partial<ReportSummary>): ReportSummary => ({
+    name: 'run@@model-a::ds',
+    model_name: 'model-a',
+    dataset_name: 'ds',
+    score: 0.5,
+    num_samples: 10,
+    timestamp: '2026-01-01T00:00:00',
+    ...overrides,
+  })
+
+  it('rejects fewer than 2 selected reports', () => {
+    expect(canMerge([])).toEqual({ ok: false, reasonKey: 'reports.mergeNeedsTwo' })
+    expect(canMerge([summary({})])).toEqual({ ok: false, reasonKey: 'reports.mergeNeedsTwo' })
+  })
+
+  it('rejects reports belonging to different models', () => {
+    const result = canMerge([
+      summary({ name: 'a', model_name: 'model-a', dataset_scores: { gsm8k: 0.5 } }),
+      summary({ name: 'b', model_name: 'model-b', dataset_scores: { mmlu: 0.5 } }),
+    ])
+    expect(result).toEqual({ ok: false, reasonKey: 'reports.mergeDifferentModels' })
+  })
+
+  it('rejects reports that share a dataset', () => {
+    const result = canMerge([
+      summary({ name: 'a', dataset_scores: { gsm8k: 0.5 } }),
+      summary({ name: 'b', dataset_scores: { gsm8k: 0.6, mmlu: 0.4 } }),
+    ])
+    expect(result).toEqual({ ok: false, reasonKey: 'reports.mergeOverlappingDatasets' })
+  })
+
+  it('accepts 2+ same-model reports with disjoint datasets', () => {
+    const result = canMerge([
+      summary({ name: 'a', dataset_scores: { gsm8k: 0.5 } }),
+      summary({ name: 'b', dataset_scores: { mmlu: 0.4 } }),
+      summary({ name: 'c', dataset_scores: { arc: 0.7 } }),
+    ])
+    expect(result).toEqual({ ok: true })
+  })
+
+  it('treats a missing dataset_scores as contributing no datasets to the overlap check', () => {
+    const result = canMerge([
+      summary({ name: 'a', dataset_scores: undefined }),
+      summary({ name: 'b', dataset_scores: { mmlu: 0.4 } }),
+    ])
+    expect(result).toEqual({ ok: true })
   })
 })

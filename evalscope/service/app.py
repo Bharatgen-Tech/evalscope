@@ -101,6 +101,8 @@ def create_app(outputs: str = None):
                 'DELETE /api/v1/perf/run': 'Delete a historical perf run directory',
                 'GET  /api/v1/reports/scan': 'Scan available report folders',
                 'DELETE /api/v1/reports/report': 'Delete an evaluation report from disk',
+                'POST /api/v1/reports/merge': 'Merge same-model reports with disjoint datasets into one report',
+                'POST /api/v1/reports/rename': "Rename a report's model name",
                 'GET  /api/v1/reports/list': 'Filterable, paginated report listing',
                 'GET  /api/v1/reports/load': 'Load a single report',
                 'GET  /api/v1/reports/load_multi': 'Load multiple reports',

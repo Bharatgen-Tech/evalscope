@@ -26,5 +26,7 @@ export type {
   PredictionsResponse,
   ScanResponse,
   DeleteReportResponse,
+  MergeReportResponse,
+  RenameReportResponse,
   AnalysisResponse,
 } from '@/api/schemas/reports.schema'

@@ -253,6 +253,18 @@ export const deleteReportResponseSchema = z.object({
   report_name: z.string(),
 })
 
+/** Runtime contract for POST /api/v1/reports/merge. */
+export const mergeReportResponseSchema = z.object({
+  success: z.boolean(),
+  report_name: z.string(),
+})
+
+/** Runtime contract for POST /api/v1/reports/rename. */
+export const renameReportResponseSchema = z.object({
+  success: z.boolean(),
+  report_name: z.string(),
+})
+
 export const analysisResponseSchema = z.object({
   analysis: z.string(),
 })
@@ -276,4 +288,6 @@ export type PredictionRow = z.infer<typeof predictionRowSchema>
 export type PredictionsResponse = z.infer<typeof predictionsResponseSchema>
 export type ScanResponse = z.infer<typeof scanResponseSchema>
 export type DeleteReportResponse = z.infer<typeof deleteReportResponseSchema>
+export type MergeReportResponse = z.infer<typeof mergeReportResponseSchema>
+export type RenameReportResponse = z.infer<typeof renameReportResponseSchema>
 export type AnalysisResponse = z.infer<typeof analysisResponseSchema>
