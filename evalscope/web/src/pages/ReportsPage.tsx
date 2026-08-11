@@ -257,9 +257,25 @@ export default function ReportsPage() {
     if (merging || selectedForCompare.length < 2) return
     setMerging(true)
     setError(null)
+    const sourceNames = selectedForCompare
     try {
-      await reportsApi.mergeReports(rootPath, selectedForCompare)
+      await reportsApi.mergeReports(rootPath, sourceNames)
       clearCompareSelection()
+
+      // The merge already succeeded and produced the new combined report, so
+      // a failure removing an old source here is reported separately rather
+      // than made to look like the merge itself failed.
+      let failedDeletes = 0
+      for (const name of sourceNames) {
+        try {
+          await reportsApi.deleteReport(rootPath, name)
+        } catch {
+          failedDeletes += 1
+        }
+      }
+      if (failedDeletes > 0) {
+        setError(t('reports.mergeCleanupFailed', { n: failedDeletes }))
+      }
     } catch (err) {
       setError(t('reports.mergeFailed', { msg: err instanceof Error ? err.message : String(err) }))
     } finally {
