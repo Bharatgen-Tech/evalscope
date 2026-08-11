@@ -3,23 +3,27 @@ import {
   analysisResponseSchema,
   dataFrameResponseSchema,
   deleteReportResponseSchema,
+  groupJobStatusSchema,
   listReportsResponseSchema,
   loadReportResponseSchema,
   mergeReportResponseSchema,
   predictionsResponseSchema,
   renameReportResponseSchema,
   scanResponseSchema,
+  startGroupJobResponseSchema,
 } from './schemas'
 import type {
   AnalysisResponse,
   DataFrameResponse,
   DeleteReportResponse,
+  GroupJobStatus,
   ListReportsResponse,
   LoadReportResponse,
   MergeReportResponse,
   PredictionsResponse,
   RenameReportResponse,
   ScanResponse,
+  StartGroupJobResponse,
 } from './types'
 
 const BASE = '/api/v1/reports'
@@ -99,6 +103,17 @@ export async function renameReport(
     renameReportResponseSchema,
     { signal },
   )
+}
+
+export async function startGroupJob(rootPath: string, signal?: AbortSignal): Promise<StartGroupJobResponse> {
+  return apiPostValidated(`${BASE}/group`, { root_path: rootPath }, startGroupJobResponseSchema, { signal })
+}
+
+export async function getGroupJobStatus(rootPath: string, signal?: AbortSignal): Promise<GroupJobStatus> {
+  return apiValidated(`${BASE}/group/status`, groupJobStatusSchema, {
+    params: { root_path: rootPath },
+    signal,
+  })
 }
 
 export async function loadReport(

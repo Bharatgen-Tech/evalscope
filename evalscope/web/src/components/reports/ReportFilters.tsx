@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import { ArrowUpDown, ChevronDown } from 'lucide-react'
+import { ArrowUpDown, ChevronDown, Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLocale } from '@/contexts/LocaleContext'
 import SearchInput from '@/components/ui/SearchInput'
@@ -21,6 +21,10 @@ interface ReportFiltersProps {
   availableModels: string[]
   availableDatasets: string[]
   onChange: (filters: ReportFilters) => void
+  /** Start a background job that groups every same-model report into one. */
+  onGroup?: () => void
+  /** Disables the Group button while a group job is running (for this root or in-flight starting). */
+  grouping?: boolean
 }
 
 // Multi-select dropdown with checkboxes
@@ -97,6 +101,8 @@ export default function ReportFiltersBar({
   availableModels,
   availableDatasets,
   onChange,
+  onGroup,
+  grouping,
 }: ReportFiltersProps) {
   const { t } = useLocale()
 
@@ -214,6 +220,13 @@ export default function ReportFiltersBar({
             <ArrowUpDown size={14} className={filters.sortOrder === 'desc' ? 'rotate-180' : ''} />
           </Button>
         </div>
+
+        {onGroup && (
+          <Button variant="outline" size="sm" disabled={grouping} onClick={onGroup}>
+            <Layers size={14} />
+            {t('reports.group')}
+          </Button>
+        )}
       </div>
 
       {/* Active filter chips */}

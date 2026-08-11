@@ -265,6 +265,31 @@ export const renameReportResponseSchema = z.object({
   report_name: z.string(),
 })
 
+/** Runtime contract for POST /api/v1/reports/group. */
+export const startGroupJobResponseSchema = z.object({
+  status: z.literal('started'),
+})
+
+/** One model's outcome within a completed/errored group job's `result` list. */
+export const groupJobResultItemSchema = z.object({
+  model_name: z.string(),
+  success: z.boolean(),
+  report_name: z.string().optional(),
+  error: z.string().optional(),
+})
+
+/** Runtime contract for GET /api/v1/reports/group/status. */
+export const groupJobStatusSchema = z.object({
+  status: z.enum(['idle', 'running', 'completed', 'error']),
+  percent: z.number().optional(),
+  groups_total: z.number().optional(),
+  groups_done: z.number().optional(),
+  error: z.string().nullable().optional(),
+  result: z.array(groupJobResultItemSchema).nullable().optional(),
+  started_at: z.string().optional(),
+  updated_at: z.string().optional(),
+})
+
 export const analysisResponseSchema = z.object({
   analysis: z.string(),
 })
@@ -290,4 +315,7 @@ export type ScanResponse = z.infer<typeof scanResponseSchema>
 export type DeleteReportResponse = z.infer<typeof deleteReportResponseSchema>
 export type MergeReportResponse = z.infer<typeof mergeReportResponseSchema>
 export type RenameReportResponse = z.infer<typeof renameReportResponseSchema>
+export type StartGroupJobResponse = z.infer<typeof startGroupJobResponseSchema>
+export type GroupJobResultItem = z.infer<typeof groupJobResultItemSchema>
+export type GroupJobStatus = z.infer<typeof groupJobStatusSchema>
 export type AnalysisResponse = z.infer<typeof analysisResponseSchema>

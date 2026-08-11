@@ -103,6 +103,8 @@ def create_app(outputs: str = None):
                 'DELETE /api/v1/reports/report': 'Delete an evaluation report from disk',
                 'POST /api/v1/reports/merge': 'Merge same-model reports with disjoint datasets into one report',
                 'POST /api/v1/reports/rename': "Rename a report's model name",
+                'POST /api/v1/reports/group': 'Start a background job grouping every same-model report into one',
+                'GET  /api/v1/reports/group/status': 'Poll the status of the most recent group job',
                 'GET  /api/v1/reports/list': 'Filterable, paginated report listing',
                 'GET  /api/v1/reports/load': 'Load a single report',
                 'GET  /api/v1/reports/load_multi': 'Load multiple reports',

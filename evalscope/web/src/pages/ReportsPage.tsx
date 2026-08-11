@@ -4,7 +4,8 @@ import { useLocale } from '@/contexts/LocaleContext'
 import { useReports } from '@/contexts/ReportsContext'
 import * as reportsApi from '@/api/reports'
 import { isDomainError } from '@/api/errors'
-import type { ListReportsResponse, ReportSummary } from '@/api/types'
+import { usePolling } from '@/hooks/usePolling'
+import type { GroupJobStatus, ListReportsResponse, ReportSummary } from '@/api/types'
 import Skeleton from '@/components/ui/Skeleton'
 import SelectionCheckbox from '@/components/ui/SelectionCheckbox'
 import Pagination from '@/components/ui/Pagination'
@@ -74,6 +75,15 @@ export default function ReportsPage() {
   const [renaming, setRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [renameError, setRenameError] = useState<string | null>(null)
+  const [groupConfirmOpen, setGroupConfirmOpen] = useState(false)
+  const [groupStarting, setGroupStarting] = useState(false)
+  // Drives both the polling loop and the button's disabled state; true once a
+  // job is confirmed running, whether we started it or resumed watching one
+  // already in flight (e.g. after a page refresh).
+  const [groupJobActive, setGroupJobActive] = useState(false)
+  const [groupJobStatus, setGroupJobStatus] = useState<GroupJobStatus | null>(null)
+  const [groupNotice, setGroupNotice] = useState<string | null>(null)
+  const groupNoticeTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   // Debounce search
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -323,6 +333,76 @@ export default function ReportsPage() {
     }
   }, [renaming, orderedSelection, renameValue, rootPath, clearCompareSelection, t])
 
+  // On mount (and whenever rootPath changes), check whether a group job is
+  // already running for it - e.g. the user started one, then refreshed the
+  // page - so the button stays correctly disabled and polling resumes
+  // instead of the UI silently forgetting about it.
+  useEffect(() => {
+    if (!rootPath) return
+    let cancelled = false
+    reportsApi.getGroupJobStatus(rootPath).then((status) => {
+      if (cancelled || status.status !== 'running') return
+      setGroupJobStatus(status)
+      setGroupJobActive(true)
+    }).catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [rootPath])
+
+  usePolling<GroupJobStatus>({
+    fn: () => reportsApi.getGroupJobStatus(rootPath),
+    enabled: groupJobActive && !!rootPath,
+    interval: 1000,
+    onData: (status) => {
+      setGroupJobStatus(status)
+      if (status.status === 'running') return
+
+      setGroupJobActive(false)
+      if (status.status === 'error') {
+        setError(t('reports.groupFailed', { msg: status.error ?? 'unknown error' }))
+        return
+      }
+
+      // status === 'completed'
+      const results = status.result ?? []
+      const successCount = results.filter((r) => r.success).length
+      const failCount = results.length - successCount
+      if (results.length === 0) {
+        setGroupNotice(t('reports.groupCompletedNone'))
+      } else {
+        if (successCount > 0) setGroupNotice(t('reports.groupCompletedSome', { n: successCount }))
+        if (failCount > 0) setError(t('reports.groupPartialFailure', { n: failCount }))
+      }
+      clearTimeout(groupNoticeTimer.current)
+      groupNoticeTimer.current = setTimeout(() => setGroupNotice(null), 8000)
+      setReloadToken((n) => n + 1)
+    },
+  })
+
+  useEffect(() => () => clearTimeout(groupNoticeTimer.current), [])
+
+  const requestGroup = useCallback(() => {
+    if (groupJobActive || groupStarting) return
+    setGroupConfirmOpen(true)
+  }, [groupJobActive, groupStarting])
+
+  const confirmGroup = useCallback(async () => {
+    if (groupJobActive || groupStarting) return
+    setGroupStarting(true)
+    setError(null)
+    setGroupNotice(null)
+    try {
+      await reportsApi.startGroupJob(rootPath)
+      setGroupJobActive(true)
+    } catch (err) {
+      setError(t('reports.groupFailed', { msg: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setGroupStarting(false)
+      setGroupConfirmOpen(false)
+    }
+  }, [groupJobActive, groupStarting, rootPath, t])
+
   const requestDeleteSelected = useCallback(() => {
     if (selectedForCompare.length === 0 || deleting) return
     setConfirmOpen(true)
@@ -397,7 +477,23 @@ export default function ReportsPage() {
         availableModels={availableModels}
         availableDatasets={availableDatasets}
         onChange={handleFiltersChange}
+        onGroup={requestGroup}
+        grouping={groupJobActive || groupStarting}
       />
+
+      {groupJobActive && groupJobStatus && (
+        <div className="text-xs text-[var(--text-muted)]" role="status" aria-live="polite">
+          {t('reports.groupRunning', {
+            done: groupJobStatus.groups_done ?? 0,
+            total: groupJobStatus.groups_total ?? 0,
+          })}
+        </div>
+      )}
+      {groupNotice && (
+        <div className="text-xs text-[var(--success)]" role="status" aria-live="polite">
+          {groupNotice}
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -520,6 +616,17 @@ export default function ReportsPage() {
         }}
         onConfirm={confirmRenameSelected}
         onCancel={() => setRenamePromptOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={groupConfirmOpen}
+        busy={groupStarting}
+        title={t('reports.groupConfirmTitle')}
+        message={t('reports.groupConfirmMessage')}
+        confirmLabel={t('reports.group')}
+        cancelLabel={t('common.cancel')}
+        onConfirm={confirmGroup}
+        onCancel={() => setGroupConfirmOpen(false)}
       />
     </div>
   )

@@ -38,6 +38,7 @@ from evalscope.utils.data_utils import (
 )
 from evalscope.utils.io_utils import OutputsStructure, dict_to_yaml, yaml_to_dict
 from evalscope.utils.logger import get_logger
+from ..grouping import get_group_job_status, is_group_job_running, start_group_job
 from ..utils import OUTPUT_DIR, active_task_ids, validate_task_id
 
 logger = get_logger()
@@ -417,6 +418,9 @@ def delete_report():
     if prefix in active_task_ids():
         return jsonify({'error': f'Task is still running: {prefix}'}), 409
 
+    if is_group_job_running(_root_path()):
+        return jsonify({'error': 'A group job is running for this directory; try again once it finishes'}), 409
+
     root_real = os.path.realpath(_root_path())
     run_dir = os.path.realpath(os.path.join(root_real, prefix))
     # Reject path traversal and symlinks escaping the outputs root.
@@ -462,6 +466,9 @@ def _merge_reports(root: str, report_names: List[str]) -> str:
     """
     if len(report_names) < 2:
         raise ReportApiError('At least 2 reports are required to merge', 400)
+
+    if is_group_job_running(root):
+        raise ReportApiError('A group job is running for this directory; try again once it finishes', 409)
 
     parsed = []
     for name in report_names:
@@ -647,6 +654,9 @@ def rename_report():
         return jsonify({'error': f'Task is still running: {prefix}'}), 409
 
     root = body.get('root_path') or _root_path()
+    if is_group_job_running(root):
+        return jsonify({'error': 'A group job is running for this directory; try again once it finishes'}), 409
+
     try:
         run_dir = _resolve_run_dir(root, prefix)
     except ValueError:
@@ -684,6 +694,47 @@ def rename_report():
     except Exception as e:
         logger.error(f'Failed to rename report {report_name}: {e}')
         return jsonify({'error': str(e)}), 500
+
+
+@bp_reports.route('/group', methods=['POST'])
+def group_reports():
+    """Start a background job that groups every same-model report under
+    ``root_path`` into one report per model, then archives the originals.
+
+    When the same dataset appears in more than one report for a model, the
+    most recently-run source wins; the rest are dropped from the merge but
+    still archived along with their model's other now-redundant reports.
+
+    Request body (JSON):
+        root_path (str): output root directory (optional; falls back to config)
+
+    Returns 202 immediately; poll ``GET /api/v1/reports/group/status`` for
+    progress. Returns 409 if a group job is already running for this root.
+    """
+    body = request.get_json(silent=True) or {}
+    root = body.get('root_path') or _root_path()
+    if not root or not os.path.isdir(root):
+        return jsonify({'error': 'root_path is required and must be an existing directory'}), 400
+
+    try:
+        start_group_job(root)
+        logger.info(f'Started group job for {root}')
+        return jsonify({'status': 'started'}), 202
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 409
+
+
+@bp_reports.route('/group/status', methods=['GET'])
+def group_status():
+    """Poll the status of the most recent group job for a root directory.
+
+    Query params:
+        root_path (str): output root directory (optional; falls back to config)
+    """
+    root = request.args.get('root_path') or _root_path()
+    if not root:
+        return jsonify({'error': 'root_path is required'}), 400
+    return jsonify(get_group_job_status(root)), 200
 
 
 @bp_reports.route('/load', methods=['GET'])

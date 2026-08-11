@@ -50,6 +50,17 @@ export const en: Dict = {
   renameTitle: 'Rename report',
   renameLabel: 'Model name',
   renameRequired: 'A name is required.',
+  group: 'Group',
+  groupConfirmTitle: 'Group all reports',
+  groupConfirmMessage:
+    'Merge every report that shares a model into one, across this whole directory? When the same dataset appears more than once for a model, the most recent run wins. Originals are archived (not deleted) and can be recovered from disk.',
+  groupRunning: 'Grouping ${done}/${total}...',
+  groupStarting: 'Starting...',
+  groupCompletedSome: 'Grouped ${n} model(s).',
+  groupCompletedNone: 'Nothing to group — every model already has just one report.',
+  groupPartialFailure: '${n} model(s) failed to group; the rest completed. Check the server log for details.',
+  groupFailed: 'Group job failed: ${msg}',
+  groupAlreadyRunning: 'A group job is already running for this directory.',
 }
 
 export const zh: Dict = {
@@ -101,4 +112,15 @@ export const zh: Dict = {
   renameTitle: '重命名报告',
   renameLabel: '模型名称',
   renameRequired: '名称不能为空。',
+  group: '分组',
+  groupConfirmTitle: '分组所有报告',
+  groupConfirmMessage:
+    '将整个目录中属于同一模型的所有报告合并为一份？若同一模型下有多份报告包含相同数据集，将保留最新一次运行的结果。原始报告将被归档（而非删除），可从磁盘恢复。',
+  groupRunning: '正在分组 ${done}/${total}...',
+  groupStarting: '正在启动...',
+  groupCompletedSome: '已分组 ${n} 个模型。',
+  groupCompletedNone: '无需分组 —— 每个模型都只有一份报告。',
+  groupPartialFailure: '${n} 个模型分组失败，其余已完成。详情请查看服务器日志。',
+  groupFailed: '分组任务失败：${msg}',
+  groupAlreadyRunning: '该目录已有一个分组任务正在运行。',
 }

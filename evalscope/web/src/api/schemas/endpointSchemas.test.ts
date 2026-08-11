@@ -7,6 +7,7 @@ import {
   configResponseSchema,
   dataFrameResponseSchema,
   evalInvokeResponseSchema,
+  groupJobStatusSchema,
   listPerfRunsResponseSchema,
   listReportsResponseSchema,
   loadReportResponseSchema,
@@ -19,6 +20,7 @@ import {
   progressResponseSchema,
   renameReportResponseSchema,
   scanResponseSchema,
+  startGroupJobResponseSchema,
   taskStatusResponseSchema,
 } from './index'
 
@@ -37,6 +39,8 @@ const ENDPOINT_CASES: Array<{ name: string; schema: ZodType; valid: unknown }> =
   { name: 'report scan', schema: scanResponseSchema, valid: { reports: ['run-a'] } },
   { name: 'report merge', schema: mergeReportResponseSchema, valid: { success: true, report_name: 'merged@@model-a::ds' } },
   { name: 'report rename', schema: renameReportResponseSchema, valid: { success: true, report_name: 'run@@model-b::ds' } },
+  { name: 'report group start', schema: startGroupJobResponseSchema, valid: { status: 'started' } },
+  { name: 'report group status', schema: groupJobStatusSchema, valid: { status: 'idle' } },
   { name: 'analysis', schema: analysisResponseSchema, valid: { analysis: 'complete' } },
   {
     name: 'report list',

@@ -28,5 +28,8 @@ export type {
   DeleteReportResponse,
   MergeReportResponse,
   RenameReportResponse,
+  StartGroupJobResponse,
+  GroupJobResultItem,
+  GroupJobStatus,
   AnalysisResponse,
 } from '@/api/schemas/reports.schema'

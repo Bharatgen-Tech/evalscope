@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { loadFixture } from '@/test/loadFixture'
-import { agentTraceSchema, chatMessageSchema, loadReportResponseSchema } from './reports.schema'
+import { agentTraceSchema, chatMessageSchema, groupJobStatusSchema, loadReportResponseSchema } from './reports.schema'
 
 describe('loadReportResponseSchema real report compatibility', () => {
   const fixture = loadFixture<unknown>('report-real-single-sample')
@@ -77,6 +77,44 @@ describe('loadReportResponseSchema real report compatibility', () => {
       ],
     })
 
+    expect(result.success).toBe(true)
+  })
+})
+
+describe('groupJobStatusSchema', () => {
+  it('accepts the idle shape returned before any group job has run', () => {
+    expect(groupJobStatusSchema.safeParse({ status: 'idle' }).success).toBe(true)
+  })
+
+  it('accepts a running job mid-progress', () => {
+    const result = groupJobStatusSchema.safeParse({
+      status: 'running',
+      percent: 40,
+      groups_total: 5,
+      groups_done: 2,
+      started_at: '2026-08-11T10:00:00',
+      updated_at: '2026-08-11T10:00:05',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a completed job with a mix of successful and failed groups', () => {
+    const result = groupJobStatusSchema.safeParse({
+      status: 'completed',
+      percent: 100,
+      groups_total: 2,
+      groups_done: 2,
+      error: null,
+      result: [
+        { model_name: 'model-a', success: true, report_name: 'grouped_x@@model-a::gsm8k, mmlu' },
+        { model_name: 'model-b', success: false, error: 'Nothing to group for model-b' },
+      ],
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a job-level failure', () => {
+    const result = groupJobStatusSchema.safeParse({ status: 'error', error: 'root_path is not a directory' })
     expect(result.success).toBe(true)
   })
 })
