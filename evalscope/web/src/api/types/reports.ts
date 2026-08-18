@@ -15,7 +15,9 @@ export type {
   LoadReportResponse,
   // Report list / summary
   ReportSummary,
+  ReportGroup,
   ListReportsResponse,
+  ListReportsGroupedResponse,
   // Prediction rows (chat messages + agent trace)
   ContentBlock,
   ToolCall,
