@@ -13,7 +13,7 @@ import shutil
 from datetime import datetime
 from flask import Blueprint, jsonify, request, send_file
 from pydantic import ValidationError
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from evalscope.constants import PLOTLY_CDN_URL, PLOTLY_THEME
 from evalscope.metrics.semantics import PrimaryMetricRef
@@ -221,6 +221,48 @@ def _build_report_meta(ref: ReportRef, root: str) -> Optional[dict]:
     }
 
 
+def _group_items_by_model(items: List[dict]) -> List[dict]:
+    """Collapse per-report list items into one row per model, for display only.
+
+    This is a pure in-memory rollup over metadata `_build_report_meta` already
+    loaded - no report is read, written, moved, or merged, and no group ever
+    picks a "winning" source for a dataset that appears in more than one of
+    the model's reports. Every constituent report keeps its own identity
+    (`run_id`/`model_id`) and its own honestly-attributed `primary_metrics`;
+    the group only ever aggregates counts (`report_count`, `dataset_count`,
+    `num_samples`) and lists which reports it rolls up (`children`, `refs`).
+
+    Preserves `model_name`/`dataset_name`/`timestamp` keys with the same
+    meaning as a flat item so the existing sort machinery works unmodified.
+    """
+    order: List[str] = []
+    buckets: Dict[str, List[dict]] = {}
+    for it in items:
+        model_name = it['model_name']
+        if model_name not in buckets:
+            buckets[model_name] = []
+            order.append(model_name)
+        buckets[model_name].append(it)
+
+    groups: List[dict] = []
+    for model_name in order:
+        children = sorted(buckets[model_name], key=lambda c: c['timestamp'], reverse=True)
+        dataset_names = sorted({ds for child in children for ds in child['_datasets']})
+        stripped_children = [{k: v for k, v in child.items() if k != '_datasets'} for child in children]
+
+        groups.append({
+            'model_name': model_name,
+            'dataset_name': ', '.join(dataset_names),
+            'timestamp': children[0]['timestamp'],
+            'report_count': len(children),
+            'dataset_count': len(dataset_names),
+            'num_samples': sum(child['num_samples'] for child in children),
+            'refs': [f"{child['run_id']}/{child['model_id']}" for child in children],
+            'children': stripped_children,
+        })
+    return groups
+
+
 def _report_to_service_dict(report: Report) -> dict:
     """Serialize the persisted Report v2 contract without boundary-time reinjection."""
     return report.to_dict()
@@ -259,6 +301,9 @@ def list_reports():
         datasets   (str):   semicolon-separated dataset filter
         sort_by    (str):   model / dataset / time (default: time)
         sort_order (str):   asc / desc (default: desc)
+        group_by   (str):   'model' to roll same-model reports up into one row each
+                             (display only - no report is read, written, or merged);
+                             omit for the flat, one-row-per-report listing
         page       (int):   page number (default: 1)
         page_size  (int):   items per page (default: 20)
     """
@@ -270,12 +315,15 @@ def list_reports():
         removed_score_params = sorted({'score_min', 'score_max'} & set(request.args))
         sort_by = request.args.get('sort_by', 'time')
         sort_order = request.args.get('sort_order', 'desc')
+        group_by = request.args.get('group_by', '').strip().lower()
         if removed_score_params:
             return jsonify({'error': f"unsupported query parameters: {', '.join(removed_score_params)}"}), 400
         if sort_by not in {'model', 'dataset', 'time'}:
             return jsonify({'error': f'unsupported sort_by: {sort_by}'}), 400
         if sort_order not in {'asc', 'desc'}:
             return jsonify({'error': f'unsupported sort_order: {sort_order}'}), 400
+        if group_by and group_by != 'model':
+            return jsonify({'error': f'unsupported group_by: {group_by}'}), 400
 
         # --- Scan & load metadata ---
         items = []
@@ -306,6 +354,9 @@ def list_reports():
             ds_set = {d.strip().lower() for d in datasets_filter.split(';') if d.strip()}
             items = [it for it in items if any(d.lower() in ds_set for d in it['_datasets'])]
 
+        if group_by == 'model':
+            items = _group_items_by_model(items)
+
         # --- Sort ---
         reverse = sort_order == 'desc'
 
@@ -333,6 +384,7 @@ def list_reports():
             'total': total,
             'page': page,
             'page_size': page_size,
+            'grouped': group_by == 'model',
             'filters': {
                 'available_models': available_models,
                 'available_datasets': available_datasets,

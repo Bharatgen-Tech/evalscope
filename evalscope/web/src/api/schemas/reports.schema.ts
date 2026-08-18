@@ -141,16 +141,45 @@ export const reportSummarySchema = z.object({
   primary_metrics: z.array(primaryMetricRefSchema),
 })
 
+const listReportsFiltersSchema = z.object({
+  available_models: z.array(z.string()),
+  available_datasets: z.array(z.string()),
+})
+
 /** Runtime contract for a paginated report list. */
 export const listReportsResponseSchema = z.object({
   reports: z.array(reportSummarySchema),
   total: z.number(),
   page: z.number(),
   page_size: z.number(),
-  filters: z.object({
-    available_models: z.array(z.string()),
-    available_datasets: z.array(z.string()),
-  }),
+  filters: listReportsFiltersSchema,
+})
+
+/**
+ * Runtime contract for one `group_by=model` row: a display-only rollup of
+ * every report sharing a `model_name`. Nothing is merged - `children` holds
+ * each constituent report exactly as `reportSummarySchema` describes it
+ * (own run_id/model_id, own primary_metrics), so expanding a group never
+ * shows a fabricated combined score.
+ */
+export const reportGroupSchema = z.object({
+  model_name: z.string(),
+  dataset_name: z.string(),
+  timestamp: z.string(),
+  report_count: z.number(),
+  dataset_count: z.number(),
+  num_samples: z.number(),
+  refs: z.array(z.string()),
+  children: z.array(reportSummarySchema),
+})
+
+/** Runtime contract for a paginated, `group_by=model` report list. */
+export const listReportsGroupedResponseSchema = z.object({
+  reports: z.array(reportGroupSchema),
+  total: z.number(),
+  page: z.number(),
+  page_size: z.number(),
+  filters: listReportsFiltersSchema,
 })
 
 // ------------------------------------------------------------------ //
@@ -288,7 +317,9 @@ export type PerfMetrics = z.infer<typeof perfMetricsSchema>
 export type ReportData = z.infer<typeof reportDataSchema>
 export type LoadReportResponse = z.infer<typeof loadReportResponseSchema>
 export type ReportSummary = z.infer<typeof reportSummarySchema>
+export type ReportGroup = z.infer<typeof reportGroupSchema>
 export type ListReportsResponse = z.infer<typeof listReportsResponseSchema>
+export type ListReportsGroupedResponse = z.infer<typeof listReportsGroupedResponseSchema>
 export type ContentBlock = z.infer<typeof contentBlockSchema>
 export type ToolCall = z.infer<typeof toolCallSchema>
 export type ChatMessage = z.infer<typeof chatMessageSchema>

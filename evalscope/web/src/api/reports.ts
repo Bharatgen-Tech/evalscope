@@ -3,6 +3,7 @@ import {
   analysisResponseSchema,
   dataFrameResponseSchema,
   deleteReportResponseSchema,
+  listReportsGroupedResponseSchema,
   listReportsResponseSchema,
   loadReportResponseSchema,
   predictionsResponseSchema,
@@ -11,6 +12,7 @@ import type {
   AnalysisResponse,
   DataFrameResponse,
   DeleteReportResponse,
+  ListReportsGroupedResponse,
   ListReportsResponse,
   LoadReportResponse,
   PredictionsResponse,
@@ -25,7 +27,7 @@ function reportPath(ref: string): string {
   return `${BASE}/runs/${encodeURIComponent(runId)}/models/${encodeURIComponent(modelId)}`
 }
 
-export async function listReports(params: {
+interface ListReportsParams {
   rootPath: string
   search?: string
   models?: string[]
@@ -36,7 +38,9 @@ export async function listReports(params: {
   pageSize?: number
   /** Optional signal to cancel a superseded list/search request. */
   signal?: AbortSignal
-}): Promise<ListReportsResponse> {
+}
+
+export async function listReports(params: ListReportsParams): Promise<ListReportsResponse> {
   return apiValidated(BASE, listReportsResponseSchema, {
     params: {
       root_path: params.rootPath,
@@ -45,6 +49,29 @@ export async function listReports(params: {
       datasets: params.datasets?.join(';'),
       sort_by: params.sortBy,
       sort_order: params.sortOrder,
+      page: params.page,
+      page_size: params.pageSize,
+    },
+    signal: params.signal,
+  })
+}
+
+/**
+ * Same listing, rolled up into one row per model (see `ReportGroup`).
+ * Display-only: the backend never reads, writes, or merges a report to
+ * build a group - it's an in-memory rollup over metadata it already loads
+ * for the flat list, so every constituent report keeps its own identity.
+ */
+export async function listReportsGrouped(params: ListReportsParams): Promise<ListReportsGroupedResponse> {
+  return apiValidated(BASE, listReportsGroupedResponseSchema, {
+    params: {
+      root_path: params.rootPath,
+      search: params.search,
+      models: params.models?.join(';'),
+      datasets: params.datasets?.join(';'),
+      sort_by: params.sortBy,
+      sort_order: params.sortOrder,
+      group_by: 'model',
       page: params.page,
       page_size: params.pageSize,
     },
