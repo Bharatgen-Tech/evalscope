@@ -200,7 +200,11 @@ export const contentBlockSchema = z.object({
   type: z.enum(['text', 'reasoning', 'image', 'audio', 'video', 'data']),
   text: z.string().optional(),
   reasoning: z.string().optional(),
-  reasoning_tokens: z.number().optional(),
+  // ContentReasoning.reasoning_tokens is `Optional[int] = None` on the Python
+  // side, which serializes as an explicit JSON `null` whenever a reasoning
+  // block carries no token count - not omitted, not `undefined`. `.nullish()`
+  // accepts both, matching e.g. `percentileStatsSchema.std` below.
+  reasoning_tokens: z.number().nullish(),
   image: z.string().optional(),
   audio: z.string().optional(),
   video: z.string().optional(),
