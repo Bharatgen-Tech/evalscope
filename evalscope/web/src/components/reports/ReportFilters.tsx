@@ -1,10 +1,15 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { ArrowUpDown, ChevronDown, Layers } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useLocale } from '@/contexts/LocaleContext'
 import SearchInput from '@/components/ui/SearchInput'
 import FilterChip from '@/components/ui/FilterChip'
 import Button from '@/components/ui/Button'
+
+/** Above this many options, render only a search-matched slice instead of every row at once. */
+const DROPDOWN_SEARCH_THRESHOLD = 8
+/** Cap on rows rendered even after search narrows the match set, so a broad query still stays cheap. */
+const DROPDOWN_MAX_RENDERED = 50
 
 export interface ReportFilters {
   search: string
@@ -39,7 +44,9 @@ function MultiSelectDropdown({
   selected: string[]
   onChange: (selected: string[]) => void
 }) {
+  const { t } = useLocale()
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
   const toggle = (val: string) => {
@@ -47,11 +54,22 @@ function MultiSelectDropdown({
     else onChange([...selected, val])
   }
 
+  const showSearch = options.length > DROPDOWN_SEARCH_THRESHOLD
+  const matched = useMemo(
+    () => (query.trim() ? options.filter((o) => o.toLowerCase().includes(query.trim().toLowerCase())) : options),
+    [options, query],
+  )
+  const visible = matched.slice(0, DROPDOWN_MAX_RENDERED)
+  const hiddenCount = matched.length - visible.length
+
   return (
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen((o) => {
+          if (o) setQuery('')
+          return !o
+        })}
         className={cn(
           'coarse-target flex items-center gap-1.5 px-3 py-2 text-sm rounded-[var(--radius-sm)]',
           'bg-[var(--bg-deep)] border border-[var(--border)] text-[var(--text)]',
@@ -68,27 +86,43 @@ function MultiSelectDropdown({
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute z-20 top-full mt-1 left-0 min-w-[200px] max-h-[240px] overflow-y-auto rounded-[var(--radius)] bg-[var(--bg-card)] border border-[var(--border)] shadow-[var(--shadow-lg)] py-1">
-            {options.length === 0 ? (
-              // text-dim allowed: decorative em-dash placeholder (DESIGN.md §Text)
-              <div className="px-3 py-2 text-xs text-[var(--text-dim)]">—</div>
-            ) : (
-              options.map((opt) => (
-                <label
-                  key={opt}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text)] hover:bg-[var(--bg-card2)] cursor-pointer transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(opt)}
-                    onChange={() => toggle(opt)}
-                    className="accent-[var(--accent)] w-3.5 h-3.5"
-                  />
-                  <span className="truncate">{opt}</span>
-                </label>
-              ))
+          <div className="fixed inset-0 z-10" onClick={() => { setOpen(false); setQuery('') }} />
+          <div className="absolute z-20 top-full mt-1 left-0 min-w-[200px] max-w-[280px] rounded-[var(--radius)] bg-[var(--bg-card)] border border-[var(--border)] shadow-[var(--shadow-lg)] py-1">
+            {showSearch && (
+              <div className="px-2 pb-1.5">
+                <SearchInput value={query} onChange={setQuery} placeholder={t('reports.filters.filterOptions')} />
+              </div>
             )}
+            <div className="max-h-[240px] overflow-y-auto">
+              {options.length === 0 ? (
+                // text-dim allowed: decorative em-dash placeholder (DESIGN.md §Text)
+                <div className="px-3 py-2 text-xs text-[var(--text-dim)]">—</div>
+              ) : visible.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-[var(--text-dim)]">{t('reports.filters.noMatches')}</div>
+              ) : (
+                <>
+                  {visible.map((opt) => (
+                    <label
+                      key={opt}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm text-[var(--text)] hover:bg-[var(--bg-card2)] cursor-pointer transition-colors"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(opt)}
+                        onChange={() => toggle(opt)}
+                        className="accent-[var(--accent)] w-3.5 h-3.5"
+                      />
+                      <span className="truncate">{opt}</span>
+                    </label>
+                  ))}
+                  {hiddenCount > 0 && (
+                    <div className="px-3 py-1.5 text-xs text-[var(--text-dim)]">
+                      {t('reports.filters.moreMatches', { n: hiddenCount })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </>
       )}
