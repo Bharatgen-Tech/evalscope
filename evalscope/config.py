@@ -551,7 +551,10 @@ class TaskConfig(BaseArgument):
 
     def _infer_model_id(self) -> str:
         if isinstance(self.model, str):
-            return safe_filename(os.path.basename(self.model))
+            # os.path.basename('/a/b/c/') == '' (trailing slash), which safe_filename
+            # then silently falls back to 'untitled' - strip it first so local
+            # checkpoint paths served with a trailing slash keep their real name.
+            return safe_filename(os.path.basename(self.model.rstrip('/')))
         elif isinstance(self.model, Model):
             return safe_filename(self.model.name)
         elif isinstance(self.model, ModelAPI):
