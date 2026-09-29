@@ -15,10 +15,11 @@
 <a href="https://github.com/modelscope/evalscope/pulls"><img src="https://img.shields.io/badge/PR-welcome-55EB99.svg"></a>
 <a href="https://github.com/modelscope/evalscope"><img alt="GitHub stars" src="https://img.shields.io/github/stars/modelscope/evalscope?style=flat&logo=github"></a>
 <a href='https://evalscope.readthedocs.io/en/latest/?badge=latest'><img src='https://readthedocs.org/projects/evalscope/badge/?version=latest' alt='Documentation Status' /></a>
+<a href="https://modelscope.github.io/evalscope/"><img alt="EvalScope Website" src="https://img.shields.io/badge/Website-EvalScope-1D5EFF?style=flat&logo=googlechrome&logoColor=white"></a>
 <p>
 
 <p align="center">
-<a href="https://evalscope.readthedocs.io/zh-cn/latest/"> 📖  中文文档</a> &nbsp ｜ &nbsp <a href="https://evalscope.readthedocs.io/en/latest/"> 📖  English Documentation</a>
+<a href="https://evalscope.readthedocs.io/zh-cn/latest/"> 📖  中文文档</a> &nbsp ｜ &nbsp <a href="https://evalscope.readthedocs.io/en/latest/"> 📖  English Documentation</a> &nbsp ｜ &nbsp <a href="https://modelscope.github.io/evalscope/"> 🌐  Product Website</a>
 <p>
 
 
@@ -337,7 +338,7 @@ EvalScope supports launching evaluation tasks through third-party evaluation fra
 <details><summary>🏛️ Overall Architecture</summary>
 
 <p align="center">
-    <img src="https://sail-moe.oss-cn-hangzhou.aliyuncs.com/yunlin/images/evalscope/doc/EvalScope%E6%9E%B6%E6%9E%84%E5%9B%BE.png" style="width: 70%;">
+    <img src="https://sail-moe.oss-cn-hangzhou.aliyuncs.com/yunlin/images/evalscope/doc/structure.png" style="width: 70%;">
     <br>EvalScope Overall Architecture.
 </p>
 

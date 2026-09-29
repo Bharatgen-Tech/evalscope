@@ -1,5 +1,9 @@
-"""
-Data loading and processing utilities for reports and predictions.
+"""DataFrame views over reports and predictions.
+
+These helpers shape persisted reports and prediction caches into the pandas frames the
+web dashboard and the report visualizations render. They live in the report layer
+because they depend on the whole read stack (cache, metric semantics, report models),
+which is the opposite end of the stack from ``evalscope.utils``.
 """
 
 import glob
@@ -13,7 +17,9 @@ from evalscope.api.evaluator import CacheManager, ReviewResult
 from evalscope.constants import DataCollection
 from evalscope.metrics.semantics import format_metric_value
 from evalscope.metrics.semantics.ranking import bounded_quality_ratio
-from evalscope.report import Report, ReportKey, ReportRef, get_report_list
+from evalscope.report.combinator import get_report_list
+from evalscope.report.ref import ReportRef
+from evalscope.report.report import Report, ReportKey
 from evalscope.utils.io_utils import OutputsStructure, jsonl_to_list, yaml_to_dict
 from evalscope.utils.logger import get_logger
 
@@ -418,12 +424,15 @@ def _build_prediction_row(
     extracted_prediction = score.extracted_prediction
     main_value = score.main_value
 
+    target = review_result.target
+    gold = target[0] if target and len(target) == 1 else target or '*No Gold Provided*'
+
     return {
         'Index': str(review_result.index),
         'Input': review_result.messages_markdown.replace('\n', '\n\n'),  # for markdown
         'Metadata': sample_score.sample_metadata,
         'Generated': prediction or '',  # Ensure no None value
-        'Gold': review_result.target or '*No Gold Provided*',
+        'Gold': gold,
         'Pred': (extracted_prediction if extracted_prediction != prediction else '*Same as Generated*')
         or '',  # Ensure no None value
         'Score': score.model_dump(exclude_none=True),

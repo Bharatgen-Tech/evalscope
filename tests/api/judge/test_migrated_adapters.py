@@ -7,8 +7,10 @@ import pytest
 
 from evalscope.api.dataset import Sample
 from evalscope.api.evaluator import TaskState
+from evalscope.api.messages import ChatMessageAssistant, ChatMessageUser
 from evalscope.api.model import ModelOutput
 from evalscope.api.registry import get_benchmark
+from evalscope.benchmarks.mt_bench.mt_bench_adapter import MTBenchAdapter
 from evalscope.benchmarks.prbench.prbench_adapter import PRBenchAdapter
 from evalscope.config import TaskConfig
 from evalscope.constants import JudgeScoreType, ScoreStatus
@@ -44,6 +46,42 @@ class TransportFailingJudge(ScriptedJudge):
 def make_state(prediction: str, target: str) -> TaskState:
     sample = Sample(id=0, input='Who wrote Hamlet?', target=target, metadata={})
     return TaskState(model='m', sample=sample, output=ModelOutput.from_content('m', prediction), completed=True)
+
+
+@pytest.mark.parametrize('answers', [[], [''], [' '], [r'\frac{'], ['1', r'\frac{']])
+@pytest.mark.parametrize('prediction', ['', r'\boxed{1} \boxed{2}'])
+def test_hipho_invalid_reference_excludes_before_judge(answers: List[str], prediction: str) -> None:
+    adapter = get_benchmark('hipho', TaskConfig(datasets=['hipho'], judge={'strategy': 'llm'}))
+    judge = ScriptedJudge(['{"correct": true}'])
+    adapter.llm_judge = judge
+    task = make_state(prediction, '')
+    task.metadata = {'answers': answers, 'marking': [], 'question': 'question'}
+
+    score = adapter.calculate_metrics(task).score
+
+    assert score.status is ScoreStatus.EXCLUDED and score.value == {}
+    assert judge.calls == []
+
+
+@pytest.mark.parametrize(('prediction', 'expected', 'calls'), [
+    (r'\boxed{1} \boxed{2}', 1.0, 0),
+    (r'\boxed{1}', 0.5, 0),
+    ('', 0.0, 0),
+    (r'\boxed{1} \boxed{3}', 0.5, 1),
+])
+def test_hipho_valid_answers_keep_partial_credit_and_judge_fallback(
+    prediction: str, expected: float, calls: int,
+) -> None:
+    adapter = get_benchmark('hipho', TaskConfig(datasets=['hipho'], judge={'strategy': 'llm'}))
+    judge = ScriptedJudge(['{"correct": false}'])
+    adapter.llm_judge = judge
+    task = make_state(prediction, '')
+    task.metadata = {'answers': ['1', '2'], 'marking': [], 'question': 'question'}
+
+    score = adapter.calculate_metrics(task).score
+
+    assert score.status is ScoreStatus.SUCCESS and score.main_value == expected
+    assert len(judge.calls) == calls
 
 
 def make_one_million_state(adapter) -> TaskState:
@@ -314,6 +352,87 @@ def test_position_swap_on_overrides_alpaca_eval_official_single_pass():
     score = adapter.calculate_metrics(make_state('candidate', 'baseline')).score
 
     assert score.status is ScoreStatus.SUCCESS
-    assert score.value['win_rate'] == 0.75
+    assert score.value['win_rate'] == 1.0
     assert len(score.metadata['judge_attempts']) == 2
     assert score.metadata['non_official_position_swap'] is True
+
+
+@pytest.mark.parametrize(('reply', 'expected'), [('{"verdict": "M"}', 1.0), ('{"verdict": "m"}', 0.0)])
+def test_alpaca_eval_counts_a_win_as_one_and_a_loss_as_zero(reply: str, expected: float) -> None:
+    config = TaskConfig(model='m', datasets=['alpaca_eval'], judge={'strategy': 'llm', 'models': [{'model_id': 'j'}]})
+    adapter = get_benchmark('alpaca_eval', config)
+    adapter.llm_judge = ScriptedJudge([reply])
+
+    score = adapter.calculate_metrics(make_state('candidate', 'baseline')).score
+
+    assert score.status is ScoreStatus.SUCCESS
+    assert score.value['win_rate'] == expected
+    assert len(score.metadata['judge_attempts']) == 1
+
+
+def make_mt_bench_adapter() -> MTBenchAdapter:
+    config = TaskConfig(
+        model='m',
+        datasets=['mt_bench'],
+        judge={'strategy': 'llm', 'models': [{'model_id': 'j'}]},
+    )
+    return get_benchmark('mt_bench', config)
+
+
+def make_mt_bench_state(adapter: MTBenchAdapter) -> TaskState:
+    sample = adapter.record_to_sample(
+        {
+            'category': 'math',
+            'prompt': ['What is 2 + 2?', 'Double your answer.'],
+            'reference': ['4', '8'],
+            'prompt_id': 1,
+        }
+    )
+    sample.id = 0
+    return TaskState(
+        model='m',
+        sample=sample,
+        messages=[
+            ChatMessageUser(content='What is 2 + 2?'),
+            ChatMessageAssistant(content='4'),
+            ChatMessageUser(content='Double your answer.'),
+            ChatMessageAssistant(content='8'),
+        ],
+        output=ModelOutput.from_content('m', '8'),
+        completed=True,
+    )
+
+
+def test_mt_bench_valid_verdict_scores_both_turns() -> None:
+    adapter = make_mt_bench_adapter()
+    adapter.llm_judge = ScriptedJudge([
+        '{"explanation": "correct", "score": 9}',
+        '{"explanation": "correct", "score": 7}',
+    ])
+
+    score = adapter.calculate_metrics(make_mt_bench_state(adapter)).score
+
+    assert score.status is ScoreStatus.SUCCESS
+    assert score.value == {'judge_score': 8.0, 'first_turn_judge_score': 9.0, 'second_turn_judge_score': 7.0}
+
+
+def test_mt_bench_invalid_judge_reply_excludes_the_sample() -> None:
+    adapter = make_mt_bench_adapter()
+    adapter.llm_judge = ScriptedJudge(['not JSON'])
+
+    score = adapter.calculate_metrics(make_mt_bench_state(adapter)).score
+
+    assert score.status is ScoreStatus.EXCLUDED
+    assert score.value == {}
+    assert score.metadata['judge_attempts'][0]['status'] == 'parse_error'
+
+
+def test_mt_bench_transport_failure_excludes_the_sample() -> None:
+    adapter = make_mt_bench_adapter()
+    adapter.llm_judge = TransportFailingJudge()
+
+    score = adapter.calculate_metrics(make_mt_bench_state(adapter)).score
+
+    assert score.status is ScoreStatus.EXCLUDED
+    assert score.value == {}
+    assert score.metadata['judge_attempts'][0]['status'] == 'transport_error'

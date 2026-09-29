@@ -20,6 +20,17 @@
           },
           "type": "array"
         },
+        "framework": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "max_steps": {
           "type": "integer"
         },
@@ -38,6 +49,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/TraceUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trial_id": {
+          "anyOf": [
+            {
+              "type": "string"
             },
             {
               "type": "null"
@@ -463,10 +485,14 @@
       "properties": {
         "outputs_root": {
           "type": "string"
+        },
+        "version": {
+          "type": "string"
         }
       },
       "required": [
-        "outputs_root"
+        "outputs_root",
+        "version"
       ],
       "type": "object"
     },
@@ -1773,7 +1799,17 @@
           "type": "string"
         },
         "Gold": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ]
         },
         "Index": {
           "type": "string"

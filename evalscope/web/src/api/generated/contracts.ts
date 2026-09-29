@@ -167,6 +167,7 @@ export interface PredictionToolCall {
 }
 export interface ConfigResponse {
   outputs_root: string;
+  version: string;
 }
 export interface DataFrameResponse {
   columns: string[];
@@ -517,7 +518,7 @@ export interface PerfRunsListResponse {
 export interface PredictionRow {
   AgentTrace?: AgentTrace | null;
   Generated: string;
-  Gold: string;
+  Gold: string | string[];
   Index: string;
   Input: string;
   Messages?: ChatMessage[] | null;
@@ -531,9 +532,11 @@ export interface PredictionRow {
 export interface AgentTrace {
   environment?: string | null;
   events: AgentTraceEvent[];
+  framework?: string | null;
   max_steps: number;
   strategy?: string | null;
   total_usage?: TraceUsage | null;
+  trial_id?: string | null;
 }
 export interface AgentTraceEvent {
   latency_ms?: number | null;

@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict, Field, model_validator
 
 from evalscope.api.agent.trace import EventType
 from evalscope.api.metric import JudgeSummary
@@ -255,9 +255,11 @@ class TraceUsage(ApiResponseModel):
 
 
 class AgentTrace(ApiResponseModel):
+    framework: Optional[str] = None
     strategy: Optional[str] = None
     environment: Optional[str] = None
     max_steps: int
+    trial_id: Optional[str] = None
     events: List[AgentTraceEvent]
     total_usage: Optional[TraceUsage] = None
 
@@ -302,7 +304,7 @@ class PredictionRow(ApiResponseModel):
     input: str = Field(alias='Input')
     metadata: Any = Field(alias='Metadata')
     generated: str = Field(alias='Generated')
-    gold: str = Field(alias='Gold')
+    gold: Union[str, List[str]] = Field(alias='Gold')
     prediction: str = Field(alias='Pred')
     score: PredictionScore = Field(alias='Score')
     normalized_score: Optional[float] = Field(alias='NScore')

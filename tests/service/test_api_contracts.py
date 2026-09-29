@@ -36,6 +36,7 @@ from evalscope.service.api_models import (
     WebApiContracts,
 )
 from evalscope.service.responses import json_response
+from evalscope.version import __version__
 
 ROOT = Path(__file__).parents[2]
 
@@ -116,7 +117,7 @@ def client(tmp_path):
 def test_config_and_idle_task_endpoints_use_response_contracts(client, tmp_path) -> None:
     config = client.get('/api/v1/config')
     assert config.status_code == 200
-    assert config.get_json() == {'outputs_root': str(tmp_path)}
+    assert config.get_json() == {'outputs_root': str(tmp_path), 'version': __version__}
 
     for scope in ('eval', 'perf'):
         progress = client.get(f'/api/v1/{scope}/progress', query_string={'task_id': 'missing-task'})
@@ -327,6 +328,23 @@ def test_v1_report_migrates_before_response_validation() -> None:
     assert response.report_list[0].judge_summary is None
 
 
+def test_prediction_contract_preserves_multiple_gold_answers() -> None:
+    response = PredictionsResponse.model_validate({
+        'predictions': [{
+            'Index': 'sample-1',
+            'Input': 'question',
+            'Metadata': {},
+            'Generated': 'answer',
+            'Gold': ['answer', 'alias'],
+            'Pred': '*Same as Generated*',
+            'Score': {},
+            'NScore': 1.0,
+        }]
+    })
+
+    assert response.predictions[0].gold == ['answer', 'alias']
+
+
 def test_prediction_contract_supports_messages_trace_and_missing_optional_fields() -> None:
     response = PredictionsResponse.model_validate({
         'predictions': [{
@@ -361,7 +379,9 @@ def test_prediction_contract_supports_messages_trace_and_missing_optional_fields
                 {'role': 'assistant', 'content': 'answer'},
             ],
             'AgentTrace': {
+                'framework': 'external-agent',
                 'max_steps': 1,
+                'trial_id': 'trial-1',
                 'events': [{
                     'step': 0,
                     'timestamp': 1.0,
@@ -381,6 +401,8 @@ def test_prediction_contract_supports_messages_trace_and_missing_optional_fields
     assert row.normalized_score is None
     assert row.messages[1].perf_metrics is None
     assert row.agent_trace.events[0].payload['nullable'] is None
+    assert row.agent_trace.framework == 'external-agent'
+    assert row.agent_trace.trial_id == 'trial-1'
     assert row.agent_trace.total_usage.total_tokens == 32768
 
 
@@ -418,7 +440,7 @@ def test_frontend_json_endpoints_are_registered_with_generated_models() -> None:
     frontend_models = set()
     for _, frontend_path, _ in CONTRACT_REGISTRY:
         frontend = (ROOT / frontend_path).read_text(encoding='utf-8')
-        frontend_models.update(re.findall(r'api(?:Post|Delete)?Validated<(\w+)>', frontend))
+        frontend_models.update(re.findall(r'api(?:Post|Delete)?Validated<(\w+)(?:\s*\|[^>]*)?>', frontend))
 
     registered_models = {model_name for model_name, _, _ in CONTRACT_REGISTRY}
     assert frontend_models == registered_models
